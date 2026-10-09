@@ -46,6 +46,12 @@ class Game {
     // Game modes & state
     this.isInMatch = false;
     this.isPaused = false;
+    this.powerBoxes = [];
+    this.powerInventory = [];
+    this.powerSpawnTimer = 3;
+    this.powerAimMode = false;
+    this.fieldEffects = [];
+    this.selectedPowerCap = null;
 
     // Menu ambient simulation entities
     this.menuCaps = [];
@@ -144,13 +150,18 @@ class Game {
     // Pointer Down (Mouse click or finger touch)
     const onDown = (e) => {
       if (!this.isInMatch || this.isPaused || this.match.isGameOver) return;
+      const p = getPos(e);
+      if (this.powerAimMode) {
+        this.usePowerAt(p.x, p.y);
+        e.preventDefault();
+        return;
+      }
       if (this.turn.state !== 'READY') return;
 
       // Only allow input if human turn
       const isHumanTurn = (this.turn.currentTurn === 1) || (this.turn.currentTurn === 2 && this.match.mode === '2p');
       if (!isHumanTurn) return;
 
-      const p = getPos(e);
       const activeCaps = this.turn.currentTurn === 1 ? this.match.team1Caps : this.match.team2Caps;
 
       // Find if clicked on any cap belonging to active turn
@@ -206,6 +217,13 @@ class Game {
         if (this.isInMatch && !this.match.isGameOver) {
           this.ui.openPauseModal();
         }
+      } else if (e.key === "1") {
+        if (this.isInMatch && !this.isPaused && this.powerInventory.length) {
+          this.powerAimMode = true;
+          this.vfx.showFloatingText("CLIQUE NO CAMPO PARA USAR O PODER", this.width / 2, 42, "#facc15", 18);
+        }
+      } else if (e.key === "Escape") {
+        this.powerAimMode = false;
       } else if (e.key === "r" || e.key === "R") {
         if (this.isInMatch && this.match.mode === 'training') {
           // Quick ball respawn in training
@@ -246,6 +264,9 @@ class Game {
         // Step Physics simulation
         const stadiumFriction = this.stadium.config.friction;
         this.physics.update(dt, stadiumFriction);
+        // A little less extreme ball speed while preserving satisfying shots.
+        if (this.match.ball.vel.mag() > 0) this.match.ball.vel.mult(0.992);
+        this.updatePowers(dt);
 
         // Update Stadium animations
         this.stadium.update(dt);
@@ -339,6 +360,84 @@ class Game {
     }
   }
 
+  updatePowers(dt) {
+    this.powerSpawnTimer -= dt;
+    if (this.powerSpawnTimer <= 0 && this.powerBoxes.length < 3) {
+      this.powerBoxes.push({ x: 130 + Math.random() * (this.width - 260), y: 90 + Math.random() * (this.height - 180), pulse: 0 });
+      this.powerSpawnTimer = 7 + Math.random() * 4;
+    }
+    for (const box of this.powerBoxes) box.pulse += dt * 4;
+    const entities = [this.match.ball, ...this.match.team1Caps, ...this.match.team2Caps];
+    this.powerBoxes = this.powerBoxes.filter(box => {
+      const picker = entities.find(e => Math.hypot(e.pos.x - box.x, e.pos.y - box.y) < e.radius + 17);
+      if (picker) {
+        const kinds = ['wall', 'slime', 'punch', 'grow'];
+        const kind = kinds[Math.floor(Math.random() * kinds.length)];
+        this.powerInventory.push(kind);
+        if (this.powerInventory.length > 3) this.powerInventory.shift();
+        const labels = { wall: 'MURO', slime: 'GOSMA', punch: 'SOCO', grow: 'TAMPA GRANDE' };
+        this.vfx.showFloatingText('PODER: ' + labels[kind] + ' (1 + clique)', box.x, box.y - 20, '#facc15', 20);
+        return false;
+      }
+      return true;
+    });
+    this.fieldEffects = this.fieldEffects.filter(e => (e.life -= dt) > 0);
+    for (const effect of this.fieldEffects) {
+      if (effect.type === 'slime') {
+        const b = this.match.ball;
+        if (Math.hypot(b.pos.x - effect.x, b.pos.y - effect.y) < effect.r) b.vel.mult(0.965);
+      }
+      if (effect.type === 'wall') {
+        const b = this.match.ball;
+        if (Math.abs(b.pos.x - effect.x) < effect.w / 2 + b.radius && Math.abs(b.pos.y - effect.y) < effect.h / 2 + b.radius) {
+          const dx = Math.abs(b.pos.x - effect.x), dy = Math.abs(b.pos.y - effect.y);
+          if (dx > dy) { b.pos.x = effect.x + Math.sign(b.pos.x - effect.x) * (effect.w / 2 + b.radius); b.vel.x *= -0.85; }
+          else { b.pos.y = effect.y + Math.sign(b.pos.y - effect.y) * (effect.h / 2 + b.radius); b.vel.y *= -0.85; }
+        }
+      }
+    }
+  }
+
+  usePowerAt(x, y) {
+    this.powerAimMode = false;
+    const kind = this.powerInventory.pop();
+    if (!kind) return;
+    const labels = { wall: 'MURO!', slime: 'GOSMA!', punch: 'SOCO!', grow: 'TAMPA AUMENTADA!' };
+    if (kind === 'wall') this.fieldEffects.push({ type: 'wall', x, y, w: 100, h: 22, life: 9 });
+    if (kind === 'slime') this.fieldEffects.push({ type: 'slime', x, y, r: 85, life: 8 });
+    if (kind === 'punch') {
+      const enemies = this.turn.currentTurn === 1 ? this.match.team2Caps : this.match.team1Caps;
+      for (const cap of enemies) {
+        const dx = cap.pos.x - x, dy = cap.pos.y - y, d = Math.hypot(dx, dy);
+        if (d < 180) { const force = (180 - d) * 2.3; cap.vel.x += (d ? dx / d : 1) * force; cap.vel.y += (d ? dy / d : 0) * force; }
+      }
+    }
+    if (kind === 'grow') {
+      const own = this.turn.currentTurn === 1 ? this.match.team1Caps : this.match.team2Caps;
+      const cap = own.slice().sort((a,b) => Math.hypot(a.pos.x-x,a.pos.y-y)-Math.hypot(b.pos.x-x,b.pos.y-y))[0];
+      if (cap) { cap.radius = Math.min(cap.radius * 1.45, 34); cap.mass *= 1.25; cap.powerupLife = 8; }
+    }
+    this.vfx.showFloatingText(labels[kind], x, y - 28, '#facc15', 25);
+  }
+
+  drawPowers(ctx) {
+    for (const box of this.powerBoxes) {
+      const size = 13 + Math.sin(box.pulse) * 2;
+      ctx.save(); ctx.translate(box.x, box.y); ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = '#60a5fa'; ctx.fillRect(-size, -size, size*2, size*2);
+      ctx.strokeStyle = '#eff6ff'; ctx.lineWidth = 3; ctx.strokeRect(-size, -size, size*2, size*2);
+      ctx.restore();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('?', box.x, box.y + 4);
+    }
+    for (const e of this.fieldEffects) {
+      ctx.save(); ctx.globalAlpha = Math.min(1, e.life);
+      if (e.type === 'wall') { ctx.fillStyle = '#94a3b8'; ctx.fillRect(e.x-e.w/2,e.y-e.h/2,e.w,e.h); ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=3; ctx.strokeRect(e.x-e.w/2,e.y-e.h/2,e.w,e.h); }
+      if (e.type === 'slime') { ctx.fillStyle = 'rgba(74,222,128,.55)'; ctx.beginPath(); ctx.ellipse(e.x,e.y,e.r,e.r*.62,0,0,Math.PI*2); ctx.fill(); ctx.strokeStyle='#bbf7d0'; ctx.stroke(); }
+      ctx.restore();
+    }
+    if (this.powerInventory.length) { ctx.fillStyle='#111827'; ctx.fillRect(12, 12, 205, 32); ctx.fillStyle='#facc15'; ctx.font='bold 15px sans-serif'; ctx.textAlign='left'; ctx.fillText('Poderes: ' + this.powerInventory.length + '  |  1 + clique', 22, 33); }
+  }
+
   render() {
     this.ctx.save();
 
@@ -356,6 +455,7 @@ class Game {
 
       // 2. Draw Match Entities (Goals, Caps, Ball, Targets)
       this.match.draw(this.ctx);
+      this.drawPowers(this.ctx);
 
       // 3. Draw Player Aiming Trajectory & Slingshot Guide
       this.turn.drawAiming(this.ctx);

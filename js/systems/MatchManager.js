@@ -177,7 +177,7 @@ class MatchManager {
     }));
 
     // 4 Field Players
-    const t1Numbers = [4, 7, 9, 10];
+    const t1Numbers = [4, 7, 10];
     for (const num of t1Numbers) {
       this.team1Caps.push(new Cap({
         id: `t1_${num}`,
@@ -209,7 +209,7 @@ class MatchManager {
     }));
 
     // 4 Field Players
-    const t2Numbers = [3, 8, 11, 7];
+    const t2Numbers = [3, 8, 11];
     for (const num of t2Numbers) {
       this.team2Caps.push(new Cap({
         id: `t2_${num}`,
@@ -262,8 +262,7 @@ class MatchManager {
 
     this.team1Caps[1].reset(midX - 250, midY);        // #4 Zagueiro
     this.team1Caps[2].reset(midX - 150, midY - 140);  // #7 Ala esquerdo
-    this.team1Caps[3].reset(midX - 150, midY + 140);  // #10 Ala direito
-    this.team1Caps[4].reset(midX - (servingTeam === 1 ? 50 : 80), midY); // #9 Atacante
+    this.team1Caps[3].reset(midX - (servingTeam === 1 ? 70 : 110), midY + 100); // Ala direito
 
     // Position Team 2 (Right half)
     const t2GK = this.team2Caps[0];
@@ -271,8 +270,7 @@ class MatchManager {
 
     this.team2Caps[1].reset(midX + 250, midY);        // Zagueiro
     this.team2Caps[2].reset(midX + 150, midY - 140);  // Ala esquerdo
-    this.team2Caps[3].reset(midX + 150, midY + 140);  // Ala direito
-    this.team2Caps[4].reset(midX + (servingTeam === 2 ? 50 : 80), midY); // Atacante
+    this.team2Caps[3].reset(midX + (servingTeam === 2 ? 70 : 110), midY + 100); // Ala direito
   }
 
   recordShot(teamNumber, speedPx) {

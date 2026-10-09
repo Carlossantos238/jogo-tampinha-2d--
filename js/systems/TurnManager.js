@@ -84,7 +84,7 @@ class TurnManager {
     const launchDir = dragVec.copy().mult(-1).normalize();
     const clampedDist = Math.min(dragDist, this.maxDragDistance);
     const powerRatio = clampedDist / this.maxDragDistance;
-    const impulseMag = powerRatio * this.maxImpulse;
+    const impulseMag = powerRatio * this.maxImpulse * 0.84;
 
     const impulse = Vector.mult(launchDir, impulseMag);
 
